@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from "react";
-import { Search, Plus, Pencil, Trash2, UserRound, ClipboardPlus, History } from "lucide-react";
+import { Search, Plus, Pencil, Trash2, UserRound, ClipboardPlus, History, FileText, Upload } from "lucide-react";
+import { openReport } from "../utils/openReport";
 import Navbar from "../components/Navbar";
 import Modal from "../components/Modal";
 import EmptyState from "../components/EmptyState";
@@ -33,6 +34,58 @@ export default function DoctorDashboard() {
   const [form, setForm] = useState(emptyForm);
   const [formError, setFormError] = useState("");
 
+  // Reports (PDF upload)
+  const [reports, setReports] = useState([]);
+  const [showReportModal, setShowReportModal] = useState(false);
+  const [reportForm, setReportForm] = useState({ title: "", date: "", notes: "" });
+  const [reportFile, setReportFile] = useState(null);
+  const [reportError, setReportError] = useState("");
+  const [uploading, setUploading] = useState(false);
+
+  const fetchReports = async (patientCode) => {
+    try {
+      const res = await api.get("/reports", { params: { patientCode } });
+      setReports(res.data.reports);
+    } catch (err) {
+      setReports([]);
+    }
+  };
+
+  const openReportModal = () => {
+    setReportForm({ title: "", date: "", notes: "" });
+    setReportFile(null);
+    setReportError("");
+    setShowReportModal(true);
+  };
+
+  const handleReportSubmit = async (e) => {
+    e.preventDefault();
+    setReportError("");
+    if (!reportFile) return setReportError("Please choose a PDF file.");
+    const fd = new FormData();
+    fd.append("patientCode", patient.patientCode);
+    fd.append("title", reportForm.title);
+    fd.append("date", reportForm.date);
+    fd.append("notes", reportForm.notes);
+    fd.append("file", reportFile);
+    setUploading(true);
+    try {
+      await api.post("/reports", fd);
+      setShowReportModal(false);
+      fetchReports(patient.patientCode);
+    } catch (err) {
+      setReportError(err.response?.data?.message || "Upload failed.");
+    } finally {
+      setUploading(false);
+    }
+  };
+
+  const handleReportDelete = async (id) => {
+    if (!window.confirm("Delete this report?")) return;
+    await api.delete(`/reports/${id}`);
+    fetchReports(patient.patientCode);
+  };
+
   const fetchMyHistory = () => {
     setHistoryLoading(true);
     api
@@ -52,10 +105,12 @@ export default function DoctorDashboard() {
     setSearchError("");
     setPatient(null);
     setCheckups([]);
+    setReports([]);
     try {
       const res = await api.get("/checkups", { params: { patientCode: code.trim() } });
       setPatient(res.data.patient);
       setCheckups(res.data.checkups);
+      fetchReports(res.data.patient.patientCode);
     } catch (err) {
       setSearchError(err.response?.data?.message || "No patient found with this ID.");
     } finally {
@@ -215,9 +270,14 @@ export default function DoctorDashboard() {
                       </div>
                     </div>
                   </div>
-                  <button className="btn-primary" onClick={openAddModal}>
-                    <Plus size={16} /> Add Checkup
-                  </button>
+                  <div style={{ display: "flex", gap: "10px", flexWrap: "wrap" }}>
+                    <button className="btn-primary" onClick={openAddModal}>
+                      <Plus size={16} /> Add Checkup
+                    </button>
+                    <button className="btn-primary" onClick={openReportModal}>
+                      <Upload size={16} /> Upload Report
+                    </button>
+                  </div>
                 </div>
 
                 <h3 className="section-heading">Checkup History</h3>
@@ -231,6 +291,34 @@ export default function DoctorDashboard() {
                   />
                 ) : (
                   <div className="record-grid">{checkups.map((c) => renderCheckupCard(c))}</div>
+                )}
+
+                <h3 className="section-heading">Reports</h3>
+                {reports.length === 0 ? (
+                  <p className="muted">No reports uploaded yet.</p>
+                ) : (
+                  <div className="record-grid">
+                    {reports.map((r) => (
+                      <div key={r.id} className="record-card record-card-teal">
+                        <div className="record-card-top">
+                          <span className="record-date">{new Date(r.date).toLocaleDateString()}</span>
+                        </div>
+                        <h4>{r.title}</h4>
+                        {r.notes && <p className="record-desc">{r.notes}</p>}
+                        <p className="muted-small">By Dr. {r.doctorName}</p>
+                        <div className="record-actions">
+                          <button className="icon-btn" title="View PDF" onClick={() => openReport(r.id)}>
+                            <FileText size={16} />
+                          </button>
+                          {r.doctorId === user?.id && (
+                            <button className="icon-btn icon-btn-danger" onClick={() => handleReportDelete(r.id)}>
+                              <Trash2 size={16} />
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
                 )}
               </>
             )}
@@ -321,6 +409,52 @@ export default function DoctorDashboard() {
 
             <button className="btn-primary btn-block" type="submit">
               {editingId ? "Save Changes" : "Save Checkup"}
+            </button>
+          </form>
+        </Modal>
+      )}
+
+      {showReportModal && (
+        <Modal title={`Upload Report for ${patient?.name}`} onClose={() => setShowReportModal(false)}>
+          {reportError && <div className="alert-error">{reportError}</div>}
+          <form onSubmit={handleReportSubmit}>
+            <label className="field">
+              <span>Report title</span>
+              <input
+                value={reportForm.title}
+                required
+                placeholder="e.g. Blood Test Report"
+                onChange={(e) => setReportForm({ ...reportForm, title: e.target.value })}
+              />
+            </label>
+            <label className="field">
+              <span>Report date</span>
+              <input
+                type="date"
+                value={reportForm.date}
+                required
+                onChange={(e) => setReportForm({ ...reportForm, date: e.target.value })}
+              />
+            </label>
+            <label className="field">
+              <span>Notes (optional)</span>
+              <textarea
+                rows={2}
+                value={reportForm.notes}
+                onChange={(e) => setReportForm({ ...reportForm, notes: e.target.value })}
+              />
+            </label>
+            <label className="field">
+              <span>PDF file (max 5 MB)</span>
+              <input
+                type="file"
+                accept="application/pdf"
+                required
+                onChange={(e) => setReportFile(e.target.files[0])}
+              />
+            </label>
+            <button className="btn-primary btn-block" type="submit" disabled={uploading}>
+              {uploading ? "Uploading..." : "Upload Report"}
             </button>
           </form>
         </Modal>
