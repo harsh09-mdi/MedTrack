@@ -11,8 +11,9 @@ const DEFAULT_DATA = {
   checkups: [],
 };
 
-// Ensure the db file exists before we try to read it
+// Ensure the db folder and file exist before we try to read it
 function ensureDB() {
+  fs.mkdirSync(path.dirname(DB_PATH), { recursive: true });
   if (!fs.existsSync(DB_PATH)) {
     fs.writeFileSync(DB_PATH, JSON.stringify(DEFAULT_DATA, null, 2));
   }
@@ -29,6 +30,7 @@ function readDB() {
 }
 
 function writeDB(data) {
+  ensureDB();
   fs.writeFileSync(DB_PATH, JSON.stringify(data, null, 2));
 }
 
